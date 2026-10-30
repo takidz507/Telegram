@@ -122,6 +122,7 @@ import org.telegram.PhoneFormat.PhoneFormat;
 import org.telegram.messenger.AccountInstance;
 import org.telegram.messenger.AndroidUtilities;
 import org.telegram.messenger.ApplicationLoader;
+import org.telegram.messenger.TikConfigManager;
 import org.telegram.messenger.AuthTokensHelper;
 import org.telegram.messenger.BillingController;
 import org.telegram.messenger.BuildConfig;
@@ -3078,6 +3079,15 @@ public class LoginActivity extends BaseFragment implements NotificationCenter.No
 
             TLRPC.TL_codeSettings settings = new TLRPC.TL_codeSettings();
             settings.allow_flashcall = simcardAvailable && allowCall && allowCancelCall && allowReadCallLog;
+            // Tikgram Step 6: the code_flashcall flag maps onto the real
+            // TL_codeSettings field. The prefer_email_code flag is a
+            // stored preference only (no TL field exists for it) — the
+            // server still decides how the code is delivered, and no
+            // SMS bypass is promised or possible client-side. (There is
+            // NO allow_sms field in TL_codeSettings in this tree.)
+            if (!TikConfigManager.getInstance().getBoolean("code_flashcall")) {
+                settings.allow_flashcall = false;
+            }
             settings.allow_missed_call = simcardAvailable && allowCall;
             settings.allow_app_hash = settings.allow_firebase = PushListenerController.GooglePushListenerServiceProvider.INSTANCE.hasServices();
             if (forceDisableSafetyNet || TextUtils.isEmpty(BuildVars.SAFETYNET_KEY)) {

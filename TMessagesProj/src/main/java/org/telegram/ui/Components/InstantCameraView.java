@@ -18,6 +18,8 @@ import android.animation.ObjectAnimator;
 import android.animation.ValueAnimator;
 import android.annotation.SuppressLint;
 import android.app.Activity;
+import android.content.Intent;
+import android.media.MediaMetadataRetriever;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothProfile;
 import android.content.Context;
@@ -81,6 +83,7 @@ import org.telegram.messenger.ImageLoader;
 import org.telegram.messenger.ImageReceiver;
 import org.telegram.messenger.LocaleController;
 import org.telegram.messenger.MediaController;
+import org.telegram.messenger.TikConfigManager;
 import org.telegram.messenger.MessagesController;
 import org.telegram.messenger.NotificationCenter;
 import org.telegram.messenger.R;
@@ -138,6 +141,8 @@ public class InstantCameraView extends InstantCameraViewBase implements Notifica
     private RectF rect;
     private final FlashViews.ImageViewInvertable switchCameraButton;
     private final FlashViews.ImageViewInvertable flashButton;
+    // Tikgram: gallery pick for photos AND videos (Step 3).
+    private final FlashViews.ImageViewInvertable galleryButton;
     private final FlashViews flashViews;
     private RLottieDrawable flashOnDrawable, flashOffDrawable;
     private RLottieDrawable switchCameraDrawable;
@@ -397,12 +402,28 @@ public class InstantCameraView extends InstantCameraViewBase implements Notifica
         });
         updateFlash();
 
+        // Tikgram: gallery button. Photos send as normal photos; videos go
+        // through the round-video pipeline with the burned-in badge.
+        galleryButton = new FlashViews.ImageViewInvertable(context);
+        galleryButton.setScaleType(ImageView.ScaleType.CENTER);
+        galleryButton.setImageResource(R.drawable.msg_media_gallery);
+        buttonsLayout.addView(galleryButton, LayoutHelper.createLinear(44, 44));
+        galleryButton.setOnClickListener(v -> {
+            Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
+            intent.setType("*/*");
+            intent.putExtra(Intent.EXTRA_MIME_TYPES, new String[]{"image/*", "video/*"});
+            intent.addCategory(Intent.CATEGORY_OPENABLE);
+            delegate.getParentActivity().startActivityForResult(intent, 31);
+        });
+
         if (!isNewDesign) {
             flashViews.add(switchCameraButton);
             flashViews.add(flashButton);
+            flashViews.add(galleryButton);
         } else if (!resourcesProvider.isDark()) {
             switchCameraButton.setInvert(0.6f);
             flashButton.setInvert(0.6f);
+            galleryButton.setInvert(0.6f);
         }
 
         muteImageView = new ImageView(context);
@@ -447,6 +468,116 @@ public class InstantCameraView extends InstantCameraViewBase implements Notifica
     private Boolean wasFlashing;
     private boolean flashing;
     private boolean frontFlashing;
+    // Tikgram Step 3: gallery pick result (request code 31, routed here
+    // by ChatActivity.onActivityResultFragment). Photos send as normal
+    // photos. Videos go through the round-video pipeline: center-square
+    // crop, TikConfig resolution/fps/bitrate, and the "Shared Media"
+    // badge burned into every encoded frame (tikBadge, never
+    // toggleable — see TextureRenderer.drawBadge).
+    public void onGalleryPicked(Intent data) {
+        if (data == null || data.getData() == null || delegate == null) {
+            return;
+        }
+        Uri uri = data.getData();
+        Activity activity = delegate.getParentActivity();
+        String mime = null;
+        try {
+            mime = activity.getContentResolver().getType(uri);
+        } catch (Exception ignore) {
+        }
+        boolean isVideo = mime != null && mime.startsWith("video");
+        String path = null;
+        try {
+            path = AndroidUtilities.getPath(uri);
+        } catch (Exception ignore) {
+        }
+        if (path == null) {
+            // SAF content Uri without a real path: copy to cache.
+            try (java.io.InputStream in = activity.getContentResolver().openInputStream(uri)) {
+                if (in == null) {
+                    return;
+                }
+                String ext = isVideo ? ".mp4" : ".jpg";
+                File out = new File(activity.getCacheDir(), "tikgram_pick_" + System.currentTimeMillis() + ext);
+                try (java.io.OutputStream os = new FileOutputStream(out)) {
+                    byte[] buf = new byte[8192];
+                    int n;
+                    while ((n = in.read(buf)) != -1) {
+                        os.write(buf, 0, n);
+                    }
+                }
+                path = out.getAbsolutePath();
+            } catch (Exception e) {
+                return;
+            }
+        }
+        if (!isVideo) {
+            String lower = path.toLowerCase();
+            isVideo = lower.endsWith(".mp4") || lower.endsWith(".mov")
+                    || lower.endsWith(".mkv") || lower.endsWith(".webm");
+        }
+        if (!isVideo) {
+            MediaController.PhotoEntry entry = new MediaController.PhotoEntry(0, 0, 0, path, 0, false, 0, 0, 0);
+            delegate.sendMedia(entry, null, true, 0, 0, false, 0);
+            return;
+        }
+        MediaMetadataRetriever retriever = new MediaMetadataRetriever();
+        try {
+            retriever.setDataSource(path);
+        } catch (Exception e) {
+            return;
+        }
+        int vw, vh;
+        long durationMs;
+        try {
+            vw = Integer.parseInt(retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH));
+            vh = Integer.parseInt(retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT));
+            durationMs = Long.parseLong(retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION));
+        } catch (Exception e) {
+            return;
+        }
+        Bitmap thumb = null;
+        try {
+            thumb = retriever.getFrameAtTime(0);
+        } catch (Exception ignore) {
+        }
+        int side = Math.min(vw, vh);
+        if (side <= 0) {
+            return;
+        }
+        TikConfigManager cfg = TikConfigManager.getInstance();
+        int res;
+        switch (cfg.getString("video_note_resolution")) {
+            case "480p": res = 480; break;
+            case "1080p": res = 1080; break;
+            default: res = 720; break;
+        }
+        MediaController.CropState crop = new MediaController.CropState();
+        crop.cropPw = side / (float) vw;
+        crop.cropPh = side / (float) vh;
+        crop.cropPx = (1f - crop.cropPw) / 2f;
+        crop.cropPy = (1f - crop.cropPh) / 2f;
+        crop.transformWidth = res;
+        crop.transformHeight = res;
+        VideoEditedInfo info = new VideoEditedInfo();
+        info.roundVideo = true;
+        info.tikBadge = true;
+        info.originalPath = path;
+        info.originalWidth = vw;
+        info.originalHeight = vh;
+        info.resultWidth = res;
+        info.resultHeight = res;
+        info.framerate = cfg.getInt("video_note_fps");
+        info.bitrate = cfg.getInt("video_note_bitrate") * 1000000;
+        info.startTime = -1;
+        info.endTime = -1;
+        info.estimatedDuration = durationMs / 1000;
+        info.cropState = crop;
+        info.thumb = thumb;
+        MediaController.PhotoEntry entry = new MediaController.PhotoEntry(0, 0, 0, path, 0, true, 0, 0, 0);
+        delegate.sendMedia(entry, info, true, 0, 0, false, 0);
+    }
+
     private void updateFlash() {
         final boolean shouldFrontFlash = flashing && recording && isFrontface;
         if (frontFlashing != shouldFrontFlash) {

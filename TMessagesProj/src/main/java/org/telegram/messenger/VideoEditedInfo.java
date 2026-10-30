@@ -61,6 +61,10 @@ public class VideoEditedInfo {
     public long estimatedSize;
     public long estimatedDuration;
     public boolean roundVideo;
+    // Tikgram: gallery-picked round video — burn the "Shared Media" badge
+    // into the encoded frames. Plain field, deliberately NOT serialized:
+    // it only lives for this send and never touches the wire format.
+    public boolean tikBadge;
     public boolean muted;
     public float volume = 1f;
     public long originalDuration;

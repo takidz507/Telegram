@@ -242,6 +242,55 @@ public class TextureRenderer {
     private int simpleInputTexCoordHandle;
     private int simpleSourceImageHandle;
 
+    // Tikgram: "Shared Media" badge, burned into every frame of a
+    // gallery-picked round video. Set once per conversion; drawn last
+    // in drawFrame so it sits on top of all other layers. There is no
+    // flag or API that disables it.
+    private Bitmap pendingBadgeBitmap;
+    private int badgeTexture = -1;
+    private float badgeAspect = 8f;
+
+    public void setBadgeBitmap(Bitmap bitmap) {
+        pendingBadgeBitmap = bitmap;
+        if (bitmap != null) {
+            badgeAspect = bitmap.getWidth() / (float) Math.max(1, bitmap.getHeight());
+        }
+    }
+
+    private void uploadBadgeIfNeeded() {
+        if (badgeTexture != -1 || pendingBadgeBitmap == null) {
+            return;
+        }
+        int[] tex = new int[1];
+        GLES20.glGenTextures(1, tex, 0);
+        badgeTexture = tex[0];
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, badgeTexture);
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR);
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR);
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE);
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE);
+        GLUtils.texImage2D(GLES20.GL_TEXTURE_2D, 0, pendingBadgeBitmap, 0);
+        pendingBadgeBitmap = null;
+    }
+
+    private void drawBadge() {
+        uploadBadgeIfNeeded();
+        if (badgeTexture == -1) {
+            return;
+        }
+        GLES20.glUseProgram(simpleShaderProgram);
+        GLES20.glUniform1i(simpleSourceImageHandle, 0);
+        GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
+        float h = 0.09f;
+        float w = h * badgeAspect * (transformedHeight / (float) Math.max(1, transformedWidth));
+        if (w > 0.92f) {
+            w = 0.92f;
+            h = w / badgeAspect * (transformedWidth / (float) Math.max(1, transformedHeight));
+        }
+        float x = (1f - w) / 2f;
+        drawTexture(true, badgeTexture, x, 0.03f, w, h, 0, false);
+    }
+
     private int simpleShaderProgramOES;
     private int simplePositionHandleOES;
     private int simpleInputTexCoordHandleOES;
@@ -747,6 +796,8 @@ public class TextureRenderer {
                 drawEntity(mediaEntities.get(a), mediaEntities.get(a).color, time);
             }
         }
+        // Tikgram: badge last, on top of everything, in every frame.
+        drawBadge();
         GLES20.glFinish();
     }
 

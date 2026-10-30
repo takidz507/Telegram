@@ -11375,6 +11375,11 @@ public class MessagesController extends BaseController implements NotificationCe
     }
 
     public boolean sendTyping(long dialogId, long threadMsgId, int action, String emojicon, int classGuid) {
+        // Tikgram Ghost Mode: suppress typing AND recording indicators
+        // (both travel through sendTyping) — the other side sees nothing.
+        if (TikConfigManager.getInstance().getBoolean("ghost_typing")) {
+            return false;
+        }
         if (action < 0 || action >= sendingTypings.length || dialogId == 0) {
             return false;
         }
@@ -14553,6 +14558,13 @@ public class MessagesController extends BaseController implements NotificationCe
     }
 
     private void completeReadTask(ReadTask task) {
+        // Tikgram Ghost Mode: never send read receipts. Local read state
+        // is already updated by markDialogAsRead before this task queues,
+        // so unread badges still clear locally — only the network
+        // receipt is suppressed.
+        if (TikConfigManager.getInstance().getBoolean("ghost_mode")) {
+            return;
+        }
         if (task.replyId != 0 && task.monoForumPeerId == 0) {
             TLRPC.TL_messages_readDiscussion req = new TLRPC.TL_messages_readDiscussion();
             req.msg_id = (int) task.replyId;
@@ -17595,7 +17607,16 @@ public class MessagesController extends BaseController implements NotificationCe
     protected void deleteMessagesByPush(long dialogId, ArrayList<Integer> ids, long channelId) {
         getMessagesStorage().getStorageQueue().postRunnable(() -> {
             AndroidUtilities.runOnUIThread(() -> {
-                getNotificationCenter().postNotificationName(NotificationCenter.messagesDeleted, ids, channelId, false);
+                // Tikgram Anti-Revoke: record the ids and keep the
+                // in-memory deleted=true marking (ChatMessageCell's own
+                // deleted-path rendering), but skip the messagesDeleted
+                // notification and all storage deletions below.
+                boolean tikAntiRevoke = TikConfigManager.getInstance().getBoolean("anti_revoke");
+                if (tikAntiRevoke) {
+                    TikAntiRevoke.markDeleted(dialogId, ids);
+                } else {
+                    getNotificationCenter().postNotificationName(NotificationCenter.messagesDeleted, ids, channelId, false);
+                }
                 if (channelId == 0) {
                     for (int b = 0, size2 = ids.size(); b < size2; b++) {
                         Integer id = ids.get(b);
@@ -17619,9 +17640,11 @@ public class MessagesController extends BaseController implements NotificationCe
                     }
                 }
             });
-            getMessagesStorage().deletePushMessages(dialogId, ids);
-            ArrayList<Long> dialogIds = getMessagesStorage().markMessagesAsDeleted(dialogId, ids, false, true, 0, 0);
-            getMessagesStorage().updateDialogsWithDeletedMessages(dialogId, channelId, ids, dialogIds);
+            if (!TikConfigManager.getInstance().getBoolean("anti_revoke")) {
+                getMessagesStorage().deletePushMessages(dialogId, ids);
+                ArrayList<Long> dialogIds = getMessagesStorage().markMessagesAsDeleted(dialogId, ids, false, true, 0, 0);
+                getMessagesStorage().updateDialogsWithDeletedMessages(dialogId, channelId, ids, dialogIds);
+            }
         });
     }
 
@@ -21151,7 +21174,13 @@ public class MessagesController extends BaseController implements NotificationCe
                     if (arrayList == null) {
                         continue;
                     }
-                    getNotificationCenter().postNotificationName(NotificationCenter.messagesDeleted, arrayList, -dialogId, false);
+                    // Tikgram Anti-Revoke: record ids, skip the removal
+                    // notification, keep the in-memory deleted marking.
+                    if (TikConfigManager.getInstance().getBoolean("anti_revoke")) {
+                        TikAntiRevoke.markDeleted(dialogId, arrayList);
+                    } else {
+                        getNotificationCenter().postNotificationName(NotificationCenter.messagesDeleted, arrayList, -dialogId, false);
+                    }
                     if (dialogId == 0) {
                         for (int b = 0, size2 = arrayList.size(); b < size2; b++) {
                             Integer id = arrayList.get(b);
@@ -21269,8 +21298,13 @@ public class MessagesController extends BaseController implements NotificationCe
                 long key = deletedMessages.keyAt(a);
                 ArrayList<Integer> arrayList = deletedMessages.valueAt(a);
                 getMessagesStorage().getStorageQueue().postRunnable(() -> {
-                    ArrayList<Long> dialogIds = getMessagesStorage().markMessagesAsDeleted(key, arrayList, false, true, 0, 0);
-                    getMessagesStorage().updateDialogsWithDeletedMessages(key, -key, arrayList, dialogIds);
+                    // Tikgram Anti-Revoke: skip storage deletion entirely.
+                    if (TikConfigManager.getInstance().getBoolean("anti_revoke")) {
+                        TikAntiRevoke.markDeleted(key, arrayList);
+                    } else {
+                        ArrayList<Long> dialogIds = getMessagesStorage().markMessagesAsDeleted(key, arrayList, false, true, 0, 0);
+                        getMessagesStorage().updateDialogsWithDeletedMessages(key, -key, arrayList, dialogIds);
+                    }
                 });
             }
         }

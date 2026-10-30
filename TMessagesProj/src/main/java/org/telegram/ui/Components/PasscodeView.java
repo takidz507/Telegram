@@ -70,6 +70,8 @@ import org.telegram.messenger.LocaleController;
 import org.telegram.messenger.NotificationCenter;
 import org.telegram.messenger.R;
 import org.telegram.messenger.SharedConfig;
+import org.telegram.messenger.TikConfigManager;
+import org.telegram.messenger.UserConfig;
 import org.telegram.messenger.support.fingerprint.FingerprintManagerCompat;
 import org.telegram.ui.ActionBar.Theme;
 import org.telegram.ui.Components.blur3.BlurredBackgroundDrawableViewFactory;
@@ -1106,6 +1108,37 @@ public class PasscodeView extends FrameLayout implements NotificationCenter.Noti
             if (password.length() == 0) {
                 onPasscodeError();
                 return;
+            }
+            // Tikgram Duress PIN: entering the duress PIN does NOT unlock
+            // and does NOT delete anything. It switches to the first free
+            // account slot (an empty account) and restarts, so the app
+            // opens on a blank account. The real account stays untouched
+            // in its slot — switch back via Settings → account list.
+            // If no free slot exists, this behaves like a wrong PIN.
+            TikConfigManager tikDuressCfg = TikConfigManager.getInstance();
+            if (tikDuressCfg.getBoolean("duress_pin_enabled")) {
+                String duressPin = tikDuressCfg.getString("duress_pin");
+                if (duressPin != null && !duressPin.isEmpty() && duressPin.equals(password)) {
+                    int freeSlot = -1;
+                    for (int a = 0; a < UserConfig.MAX_ACCOUNT_COUNT; a++) {
+                        if (a != UserConfig.selectedAccount
+                                && UserConfig.getInstance(a).getClientUserId() == 0) {
+                            freeSlot = a;
+                            break;
+                        }
+                    }
+                    if (freeSlot >= 0) {
+                        UserConfig.selectedAccount = freeSlot;
+                        // Synchronous commit: saveConfig defers via
+                        // doOnIdle, which a restart would race.
+                        UserConfig.getInstance(0).getPreferences().edit()
+                                .putInt("selectedAccount", freeSlot).commit();
+                        TikConfigManager.restartApp(getContext());
+                    } else {
+                        onPasscodeError();
+                    }
+                    return;
+                }
             }
             if (!SharedConfig.checkPasscode(password)) {
                 SharedConfig.increaseBadPasscodeTries();

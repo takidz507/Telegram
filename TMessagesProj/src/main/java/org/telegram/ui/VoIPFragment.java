@@ -17,6 +17,10 @@ import android.app.Activity;
 import android.app.KeyguardManager;
 import android.app.RemoteAction;
 import android.content.Context;
+import android.media.projection.MediaProjectionManager;
+import android.net.Uri;
+import android.widget.Toast;
+import android.widget.VideoView;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
@@ -93,6 +97,8 @@ import org.telegram.messenger.voip.EncryptionKeyEmojifier;
 import org.telegram.messenger.voip.Instance;
 import org.telegram.messenger.voip.VideoCapturerDevice;
 import org.telegram.messenger.voip.VoIPService;
+import org.telegram.messenger.TikConfigManager;
+import org.telegram.messenger.TikIncallShareController;
 import org.telegram.messenger.voip.VoIPServiceState;
 import org.telegram.messenger.voip.VoipAudioManager;
 import org.telegram.tgnet.ConnectionsManager;
@@ -170,6 +176,16 @@ public class VoIPFragment implements
     private VoIpSwitchLayout bottomVideoBtn;
     private VoIpSwitchLayout bottomMuteBtn;
     private VoIPToggleButton bottomEndCallBtn;
+    // Tikgram Step 5: transparent in-call sharing (Phase 1, screencast).
+    // The "Shared Video" badge view is created unconditionally and is
+    // never gated by any flag — when sharing, it is always visible.
+    private VoIPToggleButton bottomShareBtn;
+    private FrameLayout tikShareContainer;
+    private VideoView tikShareVideoView;
+    private ImageView tikShareImageView;
+    private TextView tikShareBadgeView;
+    private Uri tikShareQueuedUri;
+    private boolean tikSharing;
     private final VoIPBackgroundProvider backgroundProvider = new VoIPBackgroundProvider();
 
     private ViewGroup fragmentView;
@@ -1101,6 +1117,16 @@ public class VoIPFragment implements
         buttonsLayout.addView(bottomVideoBtn);
         buttonsLayout.addView(bottomMuteBtn);
         buttonsLayout.addView(bottomEndCallBtn);
+        // Tikgram Step 5: Share button (5th button; VoIPButtonsLayout
+        // distributes children evenly, so this just works).
+        bottomShareBtn = new VoIPToggleButton(context, 52f);
+        bottomShareBtn.setData(R.drawable.msg_media_gallery, Color.WHITE, 0xFF2AABEE, "Share", false, false);
+        bottomShareBtn.setTranslationY(AndroidUtilities.dp(100));
+        bottomShareBtn.setScaleX(0f);
+        bottomShareBtn.setScaleY(0f);
+        bottomShareBtn.animate().setStartDelay(startDelay + 64).translationY(0).scaleY(1f).scaleX(1f).setDuration(250).start();
+        bottomShareBtn.setOnClickListener(v -> onShareButtonClicked());
+        buttonsLayout.addView(bottomShareBtn);
 
         acceptDeclineView = new AcceptDeclineView(context);
         acceptDeclineView.setListener(new AcceptDeclineView.Listener() {
@@ -1155,6 +1181,31 @@ public class VoIPFragment implements
         acceptDeclineView.setScaleY(1.15f);
 
         frameLayout.addView(buttonsLayout, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, Gravity.BOTTOM));
+        // Tikgram Step 5: full-screen preview of the shared video, with
+        // the always-visible "Shared Video" badge on top.
+        tikShareContainer = new FrameLayout(context);
+        tikShareVideoView = new VideoView(context);
+        tikShareContainer.addView(tikShareVideoView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT));
+        // Tikgram Step 5: photos share as a still frame.
+        tikShareImageView = new ImageView(context);
+        tikShareImageView.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        tikShareImageView.setVisibility(View.GONE);
+        tikShareContainer.addView(tikShareImageView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT));
+        tikShareBadgeView = new TextView(context);
+        tikShareBadgeView.setText(TikIncallShareController.BADGE_TEXT);
+        tikShareBadgeView.setTextColor(Color.WHITE);
+        tikShareBadgeView.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 15);
+        tikShareBadgeView.setGravity(Gravity.CENTER);
+        tikShareBadgeView.setBackgroundColor(0xB3000000);
+        tikShareBadgeView.setPadding(AndroidUtilities.dp(12), AndroidUtilities.dp(6), AndroidUtilities.dp(12), AndroidUtilities.dp(6));
+        tikShareContainer.addView(tikShareBadgeView, LayoutHelper.createFrame(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, Gravity.TOP | Gravity.CENTER_HORIZONTAL, 0, 16, 0, 0));
+        tikShareContainer.setVisibility(View.GONE);
+        frameLayout.addView(tikShareContainer, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT));
+        // Tikgram Step 5: the full-screen container sits above the call
+        // buttons in z-order, so bring the buttons back to the front —
+        // otherwise the Share button (tap again to stop) and the End
+        // Call button would be untappable while sharing.
+        buttonsLayout.bringToFront();
         int horizontalMargin = isTablet() ? 100 : 27;
         frameLayout.addView(acceptDeclineView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, 186, Gravity.BOTTOM, horizontalMargin, 0, horizontalMargin, 0));
 
@@ -1779,6 +1830,100 @@ public class VoIPFragment implements
         }
     }
 
+    // Tikgram Step 5: transparent in-call sharing, Phase 1 (screencast).
+    // The shared video plays locally (muted — the mic stays live) while
+    // the phone screen is broadcast through the existing MediaProjection
+    // consent path, so the other side sees the video. The "Shared
+    // Video" badge is shown from the first frame and is never gated by
+    // any flag. Video SOUNDTRACK injection is NOT implemented in Phase 1
+    // (native work, out of scope): incall_share_audio=video falls back
+    // to the live mic, and the UI says so in the share toast.
+    public void onShareButtonClicked() {
+        if (tikSharing) {
+            stopSharing();
+            return;
+        }
+        if (activity == null) {
+            return;
+        }
+        activity.startActivityForResult(TikIncallShareController.createPickerIntent(), TikIncallShareController.PICK_REQUEST_CODE);
+    }
+
+    public void onShareVideoPicked(Intent data) {
+        if (data == null || data.getData() == null) {
+            return;
+        }
+        if (TikIncallShareController.shouldStartImmediately(currentState)) {
+            startSharing(data.getData());
+        } else if (TikIncallShareController.isCallOverState(currentState)) {
+            // Call already over: drop the pick, nothing to queue for.
+        } else {
+            // Pre-answer / ringing: queue only, stream after connect.
+            tikShareQueuedUri = data.getData();
+            if (activity != null) {
+                Toast.makeText(activity, "Queued — sharing starts when the call connects", Toast.LENGTH_SHORT).show();
+            }
+        }
+    }
+
+    private void startSharing(Uri uri) {
+        if (tikShareContainer == null || tikShareVideoView == null || tikShareImageView == null) {
+            return;
+        }
+        tikSharing = true;
+        tikShareContainer.setVisibility(View.VISIBLE);
+        if (tikShareBadgeView != null) {
+            // The badge is always visible while sharing. It is never
+            // gated by any TikConfig flag and cannot be hidden.
+            tikShareBadgeView.setVisibility(View.VISIBLE);
+        }
+        boolean isPhoto = activity != null && TikIncallShareController.isImageUri(activity.getContentResolver(), uri);
+        if (isPhoto) {
+            tikShareVideoView.setVisibility(View.GONE);
+            tikShareImageView.setImageURI(uri);
+            tikShareImageView.setVisibility(View.VISIBLE);
+        } else {
+            tikShareImageView.setVisibility(View.GONE);
+            tikShareVideoView.setVisibility(View.VISIBLE);
+            tikShareVideoView.setVideoURI(uri);
+            tikShareVideoView.setOnPreparedListener(mp -> {
+                mp.setVolume(0, 0);
+                mp.setLooping(TikConfigManager.getInstance().getBoolean("incall_share_loop"));
+                mp.start();
+            });
+            if (TikConfigManager.getInstance().getString("incall_share_audio").equals("video") && activity != null) {
+                Toast.makeText(activity, "Video sound is not injected in Phase 1 — your mic stays live", Toast.LENGTH_LONG).show();
+            }
+        }
+        VoIPService service = VoIPService.getSharedInstance();
+        if (service != null && service.getVideoState(true) != Instance.VIDEO_STATE_ACTIVE && activity != null) {
+            // Reuses the existing MediaProjection consent path:
+            // LaunchActivity handles SCREEN_CAPTURE_REQUEST_CODE by
+            // calling service.createCaptureDevice(true).
+            MediaProjectionManager mgr = (MediaProjectionManager) activity.getSystemService(Context.MEDIA_PROJECTION_SERVICE);
+            activity.startActivityForResult(mgr.createScreenCaptureIntent(), LaunchActivity.SCREEN_CAPTURE_REQUEST_CODE);
+        }
+    }
+
+    private void stopSharing() {
+        tikSharing = false;
+        if (tikShareVideoView != null) {
+            tikShareVideoView.stopPlayback();
+            tikShareVideoView.setVisibility(View.VISIBLE);
+        }
+        if (tikShareImageView != null) {
+            tikShareImageView.setImageDrawable(null);
+            tikShareImageView.setVisibility(View.GONE);
+        }
+        if (tikShareContainer != null) {
+            tikShareContainer.setVisibility(View.GONE);
+        }
+        VoIPService service = VoIPService.getSharedInstance();
+        if (service != null) {
+            service.stopScreenCapture();
+        }
+    }
+
     private void updateViewState() {
         if (isFinished || switchingToPip) {
             return;
@@ -1849,8 +1994,21 @@ public class VoIPFragment implements
                     wasEstablished = true;
                     showTimer = true;
                 }
+                // Tikgram Step 5: a share queued during ringing starts
+                // now that the call is connected.
+                if (currentState == VoIPService.STATE_ESTABLISHED && tikShareQueuedUri != null && !tikSharing) {
+                    Uri queued = tikShareQueuedUri;
+                    tikShareQueuedUri = null;
+                    startSharing(queued);
+                }
                 break;
             case VoIPService.STATE_ENDED:
+                // Tikgram Step 5: call over — stop any live share and
+                // drop any queued one.
+                if (tikSharing) {
+                    stopSharing();
+                }
+                tikShareQueuedUri = null;
                 boolean hasRate = service != null && service.hasRate();
                 currentUserTextureView.saveCameraLastBitmap();
                 if (hasRate && !isFinished) {
@@ -3007,6 +3165,12 @@ public class VoIPFragment implements
     }
 
     public void onPauseInternal() {
+        // Tikgram Step 5 safety guard: leaving the call UI mid-share must
+        // never leave the screencast broadcasting unbadged screen content.
+        // Stopping is the safe direction — the user can re-share on return.
+        if (tikSharing) {
+            stopSharing();
+        }
         PowerManager pm = (PowerManager) activity.getSystemService(Context.POWER_SERVICE);
 
         boolean screenOn;

@@ -271,6 +271,9 @@ public class AndroidUtilities {
     }
 
     private static final Hashtable<String, Typeface> typefaceCache = new Hashtable<>();
+    // Tikgram: user-imported custom font (open-licensed only; never Apple assets)
+    private static Typeface tikCustomTypeface;
+    private static String tikCustomTypefacePath;
     public static float touchSlop;
     private static int prevOrientation = -10;
     private static boolean waitingForSms = false;
@@ -2391,6 +2394,29 @@ public class AndroidUtilities {
 
     public static Typeface getTypeface(String assetPath) {
         synchronized (typefaceCache) {
+            // Tikgram: user-imported custom font wins over bundled fonts.
+            // Falls back silently to the normal path on any failure.
+            try {
+                TikConfigManager tikCfg = TikConfigManager.getInstance();
+                if (tikCfg.getBoolean("custom_font_enabled")) {
+                    String tikFontPath = tikCfg.getString("custom_font_path");
+                    if (tikFontPath != null && !tikFontPath.isEmpty()) {
+                        if (tikCustomTypeface == null || !tikFontPath.equals(tikCustomTypefacePath)) {
+                            tikCustomTypeface = Typeface.createFromFile(tikFontPath);
+                            tikCustomTypefacePath = tikFontPath;
+                        }
+                        if (tikCustomTypeface != null) {
+                            if (assetPath.contains("medium") || assetPath.contains("rbold")) {
+                                return Typeface.create(tikCustomTypeface, Typeface.BOLD);
+                            } else if (assetPath.contains("italic")) {
+                                return Typeface.create(tikCustomTypeface, Typeface.ITALIC);
+                            }
+                            return tikCustomTypeface;
+                        }
+                    }
+                }
+            } catch (Exception ignore) {
+            }
             if (!typefaceCache.containsKey(assetPath)) {
                 try {
                     Typeface t;

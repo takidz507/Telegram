@@ -290,6 +290,9 @@ public class ApplicationLoader extends Application {
 
         super.onCreate();
 
+        // Tikgram: init dynamic config engine before anything reads a flag
+        TikConfigManager.getInstance().init(this);
+
         // AndroidUtilities must be initialized before FileLog
         final String helloWorld = AndroidUtilities.getHelloWorld();
 

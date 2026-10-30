@@ -132,6 +132,7 @@ import org.telegram.messenger.R;
 import org.telegram.messenger.SendMessagesHelper;
 import org.telegram.messenger.SharedConfig;
 import org.telegram.messenger.SharedPrefsHelper;
+import org.telegram.messenger.TikIncallShareController;
 import org.telegram.messenger.TopicsController;
 import org.telegram.messenger.UserConfig;
 import org.telegram.messenger.UserObject;
@@ -6770,6 +6771,13 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
             if (webviewShareAPIDoneListener != null) {
                 webviewShareAPIDoneListener.run(resultCode == RESULT_OK);
                 webviewShareAPIDoneListener = null;
+            }
+        } else if (requestCode == TikIncallShareController.PICK_REQUEST_CODE) {
+            // Tikgram Step 5: in-call share pick. Handled here (not via
+            // the generic fragment dispatch) because the call UI is a
+            // separate window, not a fragment on this stack.
+            if (resultCode == Activity.RESULT_OK && data != null && VoIPFragment.getInstance() != null) {
+                VoIPFragment.getInstance().onShareVideoPicked(data);
             }
         } else {
             ThemeEditorView editorView = ThemeEditorView.getInstance();

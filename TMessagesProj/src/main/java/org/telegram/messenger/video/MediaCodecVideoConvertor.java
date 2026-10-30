@@ -183,6 +183,9 @@ public class MediaCodecVideoConvertor {
                     encoder.start();
 
                     outputSurface = new OutputSurface(savedFilterState, videoPath, paintPath, blurPath, mediaEntities, cropState != null && cropState.useMatrix != null ? cropState : null, resultWidth, resultHeight, originalWidth, originalHeight, rotationValue, framerate, true, gradientTopColor, gradientBottomColor, null, convertVideoParams);
+                    if (convertVideoParams.tikBadge) {
+                        outputSurface.setBadgeBitmap(TikBadge.buildBadgeBitmap());
+                    }
 
                     ByteBuffer[] encoderOutputBuffers = null;
                     ByteBuffer[] encoderInputBuffers = null;
@@ -515,6 +518,9 @@ public class MediaCodecVideoConvertor {
                             }
 
                             outputSurface = new OutputSurface(savedFilterState, null, paintPath, blurPath, mediaEntities, cropState, resultWidth, resultHeight, originalWidth, originalHeight, rotationValue, framerate, false, gradientTopColor, gradientBottomColor, hdrInfo, convertVideoParams);
+                            if (convertVideoParams.tikBadge) {
+                                outputSurface.setBadgeBitmap(TikBadge.buildBadgeBitmap());
+                            }
                             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && hdrInfo != null && hdrInfo.getHDRType() != 0) {
                                 outputSurface.changeFragmentShader(
                                         hdrFragmentShader(originalWidth, originalHeight, resultWidth, resultHeight, true, hdrInfo, 8, rotationValue == 90 || rotationValue == 270),
@@ -1564,6 +1570,8 @@ public class MediaCodecVideoConvertor {
         boolean isPhoto;
         MediaController.CropState cropState;
         boolean isRound;
+        // Tikgram: burn the "Shared Media" badge into every encoded frame.
+        boolean tikBadge;
         MediaController.VideoConvertorListener callback;
         Integer gradientTopColor;
         Integer gradientBottomColor;
@@ -1617,6 +1625,7 @@ public class MediaCodecVideoConvertor {
             params.isPhoto = info.isPhoto;
             params.cropState = info.cropState;
             params.isRound = info.roundVideo;
+            params.tikBadge = info.tikBadge;
             params.callback = callback;
             params.gradientTopColor = info.gradientTopColor;
             params.gradientBottomColor = info.gradientBottomColor;

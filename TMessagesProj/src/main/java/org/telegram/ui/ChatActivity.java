@@ -140,6 +140,7 @@ import org.telegram.PhoneFormat.PhoneFormat;
 import org.telegram.messenger.AccountInstance;
 import org.telegram.messenger.AndroidUtilities;
 import org.telegram.messenger.ApplicationLoader;
+import org.telegram.messenger.TikConfigManager;
 import org.telegram.messenger.BotForumHelper;
 import org.telegram.messenger.BotInlineKeyboard;
 import org.telegram.messenger.BotWebViewVibrationEffect;
@@ -9024,6 +9025,26 @@ public class ChatActivity extends BaseFragment implements
         onBottomItemsVisibilityChanged();
         ViewCompat.setOnApplyWindowInsetsListener(fragmentView, this::onApplyWindowInsets);
         Timer.finish(t);
+
+        // Tikgram Step 2 (Liquid Glass) + Step 4 (Privacy Slit).
+        // Applied once here; a later theme change can reset backgrounds,
+        // in which case reopening the chat re-applies the glass.
+        try {
+            TikConfigManager tikCfg = TikConfigManager.getInstance();
+            if (tikCfg.getBoolean("liquid_glass")) {
+                int radius = tikCfg.getInt("liquid_glass_radius");
+                int border = tikCfg.getInt("glass_border_opacity") * 255 / 100;
+                TikGlass.apply(getActionBar(), radius, border);
+                if (chatActivityEnterView != null) {
+                    TikGlass.apply(chatActivityEnterView, radius, border);
+                }
+            }
+            if (tikCfg.getBoolean("privacy_slit")) {
+                PrivacySlitView slit = new PrivacySlitView(context);
+                fragmentView.addView(slit, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT));
+            }
+        } catch (Exception ignore) {
+        }
 
         return fragmentView;
     }
@@ -20603,6 +20624,9 @@ public class ChatActivity extends BaseFragment implements
                     chatAttachAlert.getPhotoLayout().onActivityResultFragment(requestCode, data, currentPicturePath);
                 }
                 currentPicturePath = null;
+            } else if (requestCode == 31 && instantCameraView instanceof InstantCameraView) {
+                // Tikgram Step 3: gallery pick from the round-video camera.
+                ((InstantCameraView) instantCameraView).onGalleryPicked(data);
             } else if (requestCode == 21 && chatAttachAlert != null && chatAttachAlert.getCurrentAttachLayout() instanceof ChatAttachAlertRichLayout) {
                 ((ChatAttachAlertRichLayout) chatAttachAlert.getCurrentAttachLayout()).onExternalDocumentPicked(data);
                 return;
@@ -26558,6 +26582,21 @@ public class ChatActivity extends BaseFragment implements
         processDeletedMessages(markAsDeletedMessages, channelId, sent, true);
     }
     private void processDeletedMessages(ArrayList<Integer> markAsDeletedMessages, long channelId, boolean sent, boolean thanos) {
+        // Tikgram Anti-Revoke: drop preserved ids from the removal list
+        // so their rows stay visible in this chat.
+        if (markAsDeletedMessages != null && !markAsDeletedMessages.isEmpty()
+                && TikConfigManager.getInstance().getBoolean("anti_revoke")) {
+            ArrayList<Integer> kept = new ArrayList<>();
+            for (Integer id : markAsDeletedMessages) {
+                if (!org.telegram.messenger.TikAntiRevoke.isMarked(dialog_id, id)) {
+                    kept.add(id);
+                }
+            }
+            markAsDeletedMessages = kept;
+            if (markAsDeletedMessages.isEmpty()) {
+                return;
+            }
+        }
         ArrayList<Integer> removedIndexes = new ArrayList<>();
         ArrayList<Integer> thanosMessagesIndexes = new ArrayList<>();
         final int currentTime = getConnectionsManager().getCurrentTime();

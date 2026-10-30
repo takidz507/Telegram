@@ -159,6 +159,13 @@ public class OutputSurface implements SurfaceTexture.OnFrameAvailableListener {
         mTextureRender.drawFrame(mSurfaceTexture, time);
     }
 
+    // Tikgram: hand the badge bitmap to the renderer. Upload happens
+    // lazily inside drawFrame (where the GL context is guaranteed
+    // current), so calling this right after construction is safe.
+    public void setBadgeBitmap(android.graphics.Bitmap bitmap) {
+        mTextureRender.setBadgeBitmap(bitmap);
+    }
+
     @Override
     public void onFrameAvailable(SurfaceTexture st) {
         synchronized (mFrameSyncObject) {

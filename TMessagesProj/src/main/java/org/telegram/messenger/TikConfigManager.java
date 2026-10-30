@@ -309,6 +309,100 @@ public class TikConfigManager {
     }
 
     // ------------------------------------------------------------------
+    // Telegram API identity override — typed by the user on-device only.
+    //
+    // The debug build ships Telegram's published api_id/api_hash, and
+    // Telegram's server flood-limits that published identity
+    // (API_ID_PUBLISHED_FLOOD), which blocks login. These two values let
+    // the user type his OWN api_id/api_hash inside the app (TikConfig
+    // settings, or the login screen when login itself is blocked) and
+    // have the connection/login layer use them instead.
+    //
+    // Storage: the same private "tikconfig" SharedPreferences, but under
+    // keys that are deliberately NOT in REGISTRY, so they are never
+    // exported into a .tikcfg file and never leave the device. Nothing
+    // here is ever baked into the code or the repo.
+    //
+    // Semantics: empty/unset override == use the shipped built-in
+    // values (BuildVars.APP_ID / APP_HASH). Changing the override
+    // requires an app restart AND a fresh login: the native transport
+    // fixes its api_id at process start (ConnectionsManager native
+    // initConnection), and the stored session is tied to the old
+    // identity, so a running session cannot switch identities.
+    // ------------------------------------------------------------------
+
+    private static final String KEY_API_ID_OVERRIDE = "api_id_override";
+    private static final String KEY_API_HASH_OVERRIDE = "api_hash_override";
+
+    /** Lazy prefs load for callers that run before ApplicationLoader.onCreate's init. */
+    private void ensurePrefs() {
+        if (prefs == null && ApplicationLoader.applicationContext != null) {
+            init(ApplicationLoader.applicationContext);
+        }
+    }
+
+    /** Resolved api_id: user override when set (> 0), else the shipped built-in. */
+    public int getApiId() {
+        ensurePrefs();
+        int id = prefs != null ? prefs.getInt(KEY_API_ID_OVERRIDE, 0) : 0;
+        return id > 0 ? id : BuildVars.APP_ID;
+    }
+
+    /** Resolved api_hash: user override when set (non-empty), else the shipped built-in. */
+    public String getApiHash() {
+        ensurePrefs();
+        String hash = prefs != null ? prefs.getString(KEY_API_HASH_OVERRIDE, "") : "";
+        return hash != null && !hash.isEmpty() ? hash : BuildVars.APP_HASH;
+    }
+
+    /** Raw stored api_id override, or 0 when unset (for UI prefill). */
+    public int getApiIdOverride() {
+        ensurePrefs();
+        return prefs != null ? prefs.getInt(KEY_API_ID_OVERRIDE, 0) : 0;
+    }
+
+    /** Raw stored api_hash override, or "" when unset (for UI prefill). */
+    public String getApiHashOverride() {
+        ensurePrefs();
+        String hash = prefs != null ? prefs.getString(KEY_API_HASH_OVERRIDE, "") : "";
+        return hash != null ? hash : "";
+    }
+
+    /** True when either override value is set. */
+    public boolean hasApiOverride() {
+        return getApiIdOverride() > 0 || !getApiHashOverride().isEmpty();
+    }
+
+    /** Store the pair typed by the user. Non-positive id / empty hash clears that side. */
+    public void setApiCredentials(int apiId, String apiHash) {
+        ensurePrefs();
+        if (prefs == null) {
+            return;
+        }
+        SharedPreferences.Editor ed = prefs.edit();
+        if (apiId > 0) {
+            ed.putInt(KEY_API_ID_OVERRIDE, apiId);
+        } else {
+            ed.remove(KEY_API_ID_OVERRIDE);
+        }
+        if (apiHash != null && !apiHash.isEmpty()) {
+            ed.putString(KEY_API_HASH_OVERRIDE, apiHash);
+        } else {
+            ed.remove(KEY_API_HASH_OVERRIDE);
+        }
+        ed.apply();
+    }
+
+    /** Clear the override so the shipped built-in values are used again. */
+    public void resetApiCredentials() {
+        ensurePrefs();
+        if (prefs == null) {
+            return;
+        }
+        prefs.edit().remove(KEY_API_ID_OVERRIDE).remove(KEY_API_HASH_OVERRIDE).apply();
+    }
+
+    // ------------------------------------------------------------------
     // Export / import (.tikcfg JSON) — only overridden flags exported.
     // Import validates every key and type before applying anything.
     // ------------------------------------------------------------------

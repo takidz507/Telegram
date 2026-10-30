@@ -200,6 +200,13 @@ public class TikConfigActivity extends BaseFragment {
                 rows.add(Row.action("import_emoji", "Import custom emoji pack"));
                 rows.add(Row.action("reset_emoji", "Reset emoji to system default"));
             }
+            if (category == TikConfigManager.Category.NETWORK) {
+                // Tikgram: API identity override, typed by the user on-device only.
+                // Row shows status only (Custom/Built-in) — the hash value itself is never shown here.
+                rows.add(Row.action("api_credentials", cfg().hasApiOverride()
+                        ? "Telegram API credentials (Custom)"
+                        : "Telegram API credentials (Built-in)"));
+            }
         }
         rows.add(Row.header("TikConfig file"));
         rows.add(Row.action("export", "Export config (.tikcfg)"));
@@ -292,6 +299,15 @@ public class TikConfigActivity extends BaseFragment {
                 break;
             case "restart":
                 TikConfigManager.restartApp(activity);
+                break;
+            case "api_credentials":
+                // Shared dialog; no auto-restart here (a live session is running) —
+                // the user restarts via the Restart row, then logs in again.
+                TikApiCredentialsDialog.show(activity, false, () -> {
+                    rebuildRows();
+                    listAdapter.notifyDataSetChanged();
+                    toast("Credentials updated — restart Tikgram and log in again");
+                });
                 break;
             case "import_font": {
                 Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);

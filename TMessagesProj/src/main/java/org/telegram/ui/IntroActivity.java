@@ -45,6 +45,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowManager;
 import android.widget.FrameLayout;
+import android.widget.ImageView;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
@@ -423,6 +424,30 @@ public class IntroActivity extends BaseFragment implements NotificationCenter.No
         });
 
         frameContainerView.addView(themeFrameLayout, LayoutHelper.createFrame(64, 64, Gravity.TOP | Gravity.RIGHT, 0, themeMargin, themeMargin, 0));
+
+        // Tikgram: "..." overflow entry for API credentials, top-LEFT corner
+        // (mirrors the theme toggle at top-right; the intro screen has no
+        // ActionBar, so the affordance is a view, not a menu item). It must
+        // exist here, not only on the phone login screen, because a
+        // flood-limited built-in identity blocks login itself — the user
+        // has to reach the override BEFORE ever seeing a phone field.
+        // Tapping it opens the shared credentials dialog (api_id + api_hash
+        // inputs, Save, Reset to built-in); Save/Reset restart the app so
+        // the new identity is picked up, then the user logs in again.
+        FrameLayout apiFrameLayout = new FrameLayout(context);
+        ImageView apiIconView = new ImageView(context);
+        apiIconView.setImageResource(R.drawable.ic_ab_other);
+        apiIconView.setColorFilter(Theme.getColor(Theme.key_windowBackgroundWhiteBlackText), PorterDuff.Mode.SRC_IN);
+        apiIconView.setContentDescription("Telegram API credentials");
+        apiFrameLayout.addView(apiIconView, LayoutHelper.createFrame(28, 28, Gravity.CENTER));
+        apiFrameLayout.setOnClickListener(v -> {
+            Activity activity = getParentActivity();
+            if (activity == null) {
+                return;
+            }
+            TikApiCredentialsDialog.show(activity, true, null);
+        });
+        frameContainerView.addView(apiFrameLayout, LayoutHelper.createFrame(64, 64, Gravity.TOP | Gravity.LEFT, themeMargin, themeMargin + (AndroidUtilities.isTablet() ? 0 : AndroidUtilities.statusBarHeight), 0, 0));
 
         fragmentView = scrollView;
 

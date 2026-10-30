@@ -1968,6 +1968,7 @@ public class LoginActivity extends BaseFragment implements NotificationCenter.No
         private ImageView chevronRight;
         private CheckBoxCell syncContactsBox;
         private CheckBoxCell testBackendCheckBox;
+        private TextView apiCredentialsView;
 
         @CountryState
         private int countryState = COUNTRY_STATE_NOT_SET_OR_VALID;
@@ -2498,6 +2499,18 @@ public class LoginActivity extends BaseFragment implements NotificationCenter.No
                 });
             }
 
+            if (activityMode == MODE_LOGIN) {
+                // Tikgram: API credentials row. A separate view below (never touches the
+                // Test Backend checkbox above). It must live here, not only in Settings,
+                // because a flood-limited built-in identity blocks login itself.
+                apiCredentialsView = new TextView(context);
+                refreshApiCredentialsView();
+                apiCredentialsView.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 16);
+                apiCredentialsView.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteBlackText));
+                apiCredentialsView.setOnClickListener(v -> showApiCredentialsDialog());
+                addView(apiCredentialsView, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, Gravity.LEFT | Gravity.TOP, 16, 8, 16, 0));
+            }
+
             if (bottomMargin > 0 && !AndroidUtilities.isSmallScreen()) {
                 Space bottomSpacer = new Space(context);
                 bottomSpacer.setMinimumHeight(AndroidUtilities.dp(bottomMargin));
@@ -2581,6 +2594,27 @@ public class LoginActivity extends BaseFragment implements NotificationCenter.No
             }
 
             loadCountries();
+        }
+
+        private void refreshApiCredentialsView() {
+            if (apiCredentialsView == null) {
+                return;
+            }
+            apiCredentialsView.setText(TikConfigManager.getInstance().hasApiOverride()
+                    ? "Telegram API credentials (Custom)"
+                    : "Telegram API credentials (Built-in)");
+        }
+
+        // Tikgram: API identity override, typed by the user on-device only.
+        // Shared dialog (TikApiCredentialsDialog) — pre-login screens restart
+        // so the new identity is picked up (native initConnection fixes api_id
+        // at process start); a fresh login is then required.
+        private void showApiCredentialsDialog() {
+            Activity activity = getParentActivity();
+            if (activity == null) {
+                return;
+            }
+            TikApiCredentialsDialog.show(activity, true, this::refreshApiCredentialsView);
         }
 
         private void loadCountries() {
@@ -3165,8 +3199,10 @@ public class LoginActivity extends BaseFragment implements NotificationCenter.No
                 ConnectionsManager.getInstance(currentAccount).cleanup(false);
 
                 TLRPC.TL_auth_sendCode sendCode = new TLRPC.TL_auth_sendCode();
-                sendCode.api_hash = BuildVars.APP_HASH;
-                sendCode.api_id = BuildVars.APP_ID;
+                // Tikgram: login identity — user override when set on-device, else shipped built-in.
+                // The published built-in identity can be flood-limited (API_ID_PUBLISHED_FLOOD).
+                sendCode.api_hash = TikConfigManager.getInstance().getApiHash();
+                sendCode.api_id = TikConfigManager.getInstance().getApiId();
                 sendCode.phone_number = phone;
                 sendCode.settings = settings;
                 req = sendCode;

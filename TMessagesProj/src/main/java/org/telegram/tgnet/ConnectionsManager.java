@@ -43,6 +43,7 @@ import org.telegram.messenger.NotificationCenter;
 import org.telegram.messenger.PushListenerController;
 import org.telegram.messenger.SharedConfig;
 import org.telegram.messenger.StatsController;
+import org.telegram.messenger.TikConfigManager;
 import org.telegram.messenger.UserConfig;
 import org.telegram.messenger.Utilities;
 import org.telegram.utils.proxy.WebProxyConnectionTester;
@@ -269,7 +270,9 @@ public class ConnectionsManager extends BaseController {
         if (getUserConfig().getCurrentUser() != null) {
             userPremium = getUserConfig().getCurrentUser().premium;
         }
-        init(SharedConfig.buildVersion(), TLRPC.LAYER, BuildVars.APP_ID, deviceModel, systemVersion, appVersion, langCode, systemLangCode, configPath, FileLog.getNetworkLogPath(), pushString, fingerprint, timezoneOffset, getUserConfig().getClientUserId(), userPremium, enablePushConnection);
+        // Tikgram: transport identity — user override when set on-device, else shipped built-in.
+        // This apiId reaches native_init and is fixed into native initConnection for the process lifetime.
+        init(SharedConfig.buildVersion(), TLRPC.LAYER, TikConfigManager.getInstance().getApiId(), deviceModel, systemVersion, appVersion, langCode, systemLangCode, configPath, FileLog.getNetworkLogPath(), pushString, fingerprint, timezoneOffset, getUserConfig().getClientUserId(), userPremium, enablePushConnection);
     }
 
     private String getRegId() {

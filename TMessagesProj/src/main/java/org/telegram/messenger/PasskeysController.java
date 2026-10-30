@@ -172,8 +172,9 @@ public class PasskeysController {
         final Runnable[] cancel = new Runnable[1];
 
         final TL_account.initPasskeyLogin req = new TL_account.initPasskeyLogin();
-        req.api_id = BuildVars.APP_ID;
-        req.api_hash = BuildVars.APP_HASH;
+        // Tikgram: same identity as login — user override when set on-device, else shipped built-in.
+        req.api_id = TikConfigManager.getInstance().getApiId();
+        req.api_hash = TikConfigManager.getInstance().getApiHash();
         final int requestId = ConnectionsManager.getInstance(currentAccount).sendRequestTyped(req, AndroidUtilities::runOnUIThread, (res, err) -> {
             if (cancelled[0]) return;
             if (err != null) {

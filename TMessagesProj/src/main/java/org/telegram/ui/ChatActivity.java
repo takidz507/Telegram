@@ -9041,7 +9041,7 @@ public class ChatActivity extends BaseFragment implements
             }
             if (tikCfg.getBoolean("privacy_slit")) {
                 PrivacySlitView slit = new PrivacySlitView(context);
-                fragmentView.addView(slit, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT));
+                contentView.addView(slit, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT));
             }
         } catch (Exception ignore) {
         }

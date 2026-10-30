@@ -23,6 +23,7 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import org.telegram.messenger.AndroidUtilities;
+import org.telegram.messenger.R;
 import org.telegram.messenger.TikConfigManager;
 import org.telegram.ui.ActionBar.ActionBar;
 import org.telegram.ui.ActionBar.ActionBarMenu;
@@ -466,6 +467,11 @@ public class TikConfigActivity extends BaseFragment {
         @Override
         public int getItemViewType(int position) {
             return rows.get(position).type;
+        }
+
+        @Override
+        public boolean isEnabled(RecyclerView.ViewHolder holder) {
+            return holder.getItemViewType() != TYPE_HEADER;
         }
 
         @Override

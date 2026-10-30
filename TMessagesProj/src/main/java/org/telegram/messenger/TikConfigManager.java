@@ -373,7 +373,11 @@ public class TikConfigManager {
         return getApiIdOverride() > 0 || !getApiHashOverride().isEmpty();
     }
 
-    /** Store the pair typed by the user. Non-positive id / empty hash clears that side. */
+    /** Store the pair typed by the user. Non-positive id / empty hash clears that side.
+     *  Uses commit() (synchronous) on purpose: callers restart the app right
+     *  after saving (restartApp kills the process with exit(0)), and an async
+     *  apply() can be lost when the process dies before the write flushes —
+     *  which made saved values vanish after restart. */
     public void setApiCredentials(int apiId, String apiHash) {
         ensurePrefs();
         if (prefs == null) {
@@ -390,16 +394,18 @@ public class TikConfigManager {
         } else {
             ed.remove(KEY_API_HASH_OVERRIDE);
         }
-        ed.apply();
+        ed.commit();
     }
 
-    /** Clear the override so the shipped built-in values are used again. */
+    /** Clear the override so the shipped built-in values are used again.
+     *  Synchronous commit, same reason as setApiCredentials: a restart
+     *  may follow immediately. */
     public void resetApiCredentials() {
         ensurePrefs();
         if (prefs == null) {
             return;
         }
-        prefs.edit().remove(KEY_API_ID_OVERRIDE).remove(KEY_API_HASH_OVERRIDE).apply();
+        prefs.edit().remove(KEY_API_ID_OVERRIDE).remove(KEY_API_HASH_OVERRIDE).commit();
     }
 
     // ------------------------------------------------------------------

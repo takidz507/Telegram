@@ -66,13 +66,13 @@ jobs:
       - name: Build debug APK
         run: |
           chmod +x gradlew
-          ./gradlew :TMessagesProj:assembleDebug --stacktrace
+          ./gradlew :TMessagesProj_App:assembleAfatDebug --stacktrace
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
           name: tikgram-debug-apk
-          path: TMessagesProj/build/outputs/apk/debug/*.apk
+          path: TMessagesProj_App/build/outputs/apk/afat/debug/*.apk
           if-no-files-found: error
 
   build-release-signed:
@@ -137,7 +137,7 @@ jobs:
         if: ${{ env.KEYSTORE_BASE64 != '' && env.KEY_ALIAS != '' && env.KEY_PASSWORD != '' && env.STORE_PASSWORD != '' }}
         run: |
           chmod +x gradlew
-          ./gradlew :TMessagesProj:assembleRelease --stacktrace
+          ./gradlew :TMessagesProj_App:assembleAfatRelease --stacktrace
 
       - name: Sign release APK
         if: ${{ env.KEYSTORE_BASE64 != '' && env.KEY_ALIAS != '' && env.KEY_PASSWORD != '' && env.STORE_PASSWORD != '' }}
@@ -146,9 +146,9 @@ jobs:
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
           STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
         run: |
-          UNSIGNED=$(ls TMessagesProj/build/outputs/apk/release/*-unsigned.apk 2>/dev/null | head -1)
+          UNSIGNED=$(ls TMessagesProj_App/build/outputs/apk/afat/release/*-unsigned.apk 2>/dev/null | head -1)
           if [ -z "$UNSIGNED" ]; then
-            UNSIGNED=$(ls TMessagesProj/build/outputs/apk/release/*.apk | head -1)
+            UNSIGNED=$(ls TMessagesProj_App/build/outputs/apk/afat/release/*.apk | head -1)
           fi
           echo "Signing $UNSIGNED"
           BUILD_TOOLS="$ANDROID_HOME/build-tools/36.0.0"
